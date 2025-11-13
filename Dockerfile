@@ -2,12 +2,24 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependencias del sistema (solo runtime, no compilación)
+# Instalar potrace desde source con soporte PNG
 RUN apt-get update && apt-get install -y \
-    potrace \
+    wget \
+    build-essential \
+    libpng-dev \
+    zlib1g-dev \
+    && wget https://potrace.sourceforge.net/download/potrace-1.16.tar.gz \
+    && tar -xzf potrace-1.16.tar.gz \
+    && cd potrace-1.16 \
+    && ./configure --with-libpng \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf potrace-1.16 potrace-1.16.tar.gz \
+    && apt-get remove -y wget build-essential \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar requirements modificado
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
