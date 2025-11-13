@@ -21,5 +21,6 @@ COPY main.py .
 # 7. Exponer el puerto (Render usará $PORT, pero esto es buena práctica)
 EXPOSE 8000
 
-# 8. Comando de inicio (Render lo leerá desde tu panel de control)
-# Dejamos el comando que ya tenías: uvicorn main:app --host 0.0.0.0 --port $PORT
+# 8. --- ¡COMANDO DE INICIO AÑADIDO! ---
+# Render usará el $PORT que nos asigna automáticamente.
+CMD uvicorn main:app --host 0.0.0.0 --port $PORT
