@@ -1,26 +1,25 @@
-# 1. Empezar con una imagen oficial de Python
-FROM python:3.11-slim
+# Usar una imagen base más robusta
+FROM python:3.11-bookworm
 
-# 2. Establecer un directorio de trabajo
 WORKDIR /app
 
-# 3. --- ¡LA SOLUCIÓN AHORA SÍ DEFINITIVA! ---
-# Instalar potrace, el compilador, los headers Y pkg-config (el "mapa")
-RUN apt-get update && apt-get install -y potrace build-essential libpotrace-dev pkg-config && rm -rf /var/lib/apt/lists/*
+# Instalar dependencias del sistema de forma más exhaustiva
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    pkg-config \
+    libpotrace-dev \
+    potrace \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# 4. Copiar el archivo de requerimientos
 COPY requirements.txt .
 
-# 5. Instalar las librerías de Python
-# pypotrace ahora encontrará todo (piezas, herramientas, manual y mapa)
-RUN pip install --no-cache-dir -r requirements.txt
+# Instalar con flags específicos para compilación
+RUN pip install --no-cache-dir --verbose -r requirements.txt
 
-# 6. Copiar el resto del código de la app
 COPY main.py .
 
-# 7. Exponer el puerto (Render usará $PORT, pero esto es buena práctica)
 EXPOSE 8000
 
-# 8. --- ¡COMANDO DE INICIO AÑADIDO! ---
-# Render usará el $PORT que nos asigna automáticamente.
 CMD uvicorn main:app --host 0.0.0.0 --port $PORT
