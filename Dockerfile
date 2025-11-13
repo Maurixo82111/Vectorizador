@@ -4,15 +4,15 @@ FROM python:3.11-slim
 # 2. Establecer un directorio de trabajo
 WORKDIR /app
 
-# 3. --- ¡LA SOLUCIÓN ACTUALIZADA! ---
-# Instalar potrace Y las herramientas de compilación (build-essential)
-RUN apt-get update && apt-get install -y potrace build-essential && rm -rf /var/lib/apt/lists/*
+# 3. --- ¡LA SOLUCIÓN DEFINITIVA! ---
+# Instalar potrace, el compilador Y los archivos de desarrollo (libpotrace-dev)
+RUN apt-get update && apt-get install -y potrace build-essential libpotrace-dev && rm -rf /var/lib/apt/lists/*
 
 # 4. Copiar el archivo de requerimientos
 COPY requirements.txt .
 
 # 5. Instalar las librerías de Python
-# pypotrace ahora encontrará potrace Y el compilador, y se instalará correctamente
+# pypotrace ahora encontrará todo lo que necesita y se instalará correctamente
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 6. Copiar el resto del código de la app
