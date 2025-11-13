@@ -4,25 +4,21 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
-import potrace # Necesitaremos instalar pypotrace
 import io
 import os
-
-# --- Configuración de la App ---
+import subprocess
+import tempfile
+from PIL import Image
 
 app = FastAPI()
 
-# Configurar CORS para permitir que tu HTML (desde cualquier dominio)
-# se comunique con este backend.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Permite todos los orígenes
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"], # Permite todos los métodos (POST, GET, etc.)
-    allow_headers=["*"], # Permite todas las cabeceras
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# --- Funciones de Vectorización (La Magia) ---
 
 def posterize_image(image, num_colors):
     """
@@ -53,9 +49,59 @@ def posterize_image(image, num_colors):
         
     return posterized_image, palette_hex
 
+def trace_with_potrace(mask, color_hex):
+    """Usa potrace como binario del sistema para trazar"""
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_png:
+        with tempfile.NamedTemporaryFile(suffix='.svg', delete=False) as temp_svg:
+            try:
+                # Guardar máscara como PNG (invertir colores para potrace)
+                # Potrace espera negro sobre blanco, así que invertimos si es necesario
+                mask_inverted = 255 - mask if np.mean(mask) > 127 else mask
+                Image.fromarray(mask_inverted).save(temp_png.name)
+                
+                # Ejecutar potrace como comando del sistema
+                subprocess.run([
+                    'potrace', 
+                    temp_png.name, 
+                    '--svg', 
+                    '--output', temp_svg.name,
+                    '--turdsize', '2',
+                    '--alphamax', '1.0',
+                    '--opttolerance', '0.2'
+                ], check=True, capture_output=True)
+                
+                # Leer el SVG resultante
+                with open(temp_svg.name, 'r') as f:
+                    svg_content = f.read()
+                
+                # Extraer solo el path del SVG y aplicar el color
+                start = svg_content.find('<path')
+                end = svg_content.find('</svg>')
+                if start != -1 and end != -1:
+                    path_content = svg_content[start:end]
+                    # Reemplazar el color (potrace genera fill="#000000" por defecto)
+                    path_content = path_content.replace('fill="#000000"', f'fill="{color_hex}"')
+                    path_content = path_content.replace('fill="black"', f'fill="{color_hex}"')
+                    path_content = path_content.replace('stroke="black"', f'stroke="{color_hex}"')
+                    return path_content
+                
+            except subprocess.CalledProcessError as e:
+                print(f"Error ejecutando potrace: {e}")
+                print(f"stdout: {e.stdout}")
+                print(f"stderr: {e.stderr}")
+                return ""
+            finally:
+                # Limpiar archivos temporales
+                if os.path.exists(temp_png.name):
+                    os.unlink(temp_png.name)
+                if os.path.exists(temp_svg.name):
+                    os.unlink(temp_svg.name)
+    
+    return ""
+
 def trace_multilayer_svg(posterized_image, palette_hex):
     """
-    Toma la imagen posterizada y traza cada capa de color usando Potrace.
+    Toma la imagen posterizada y traza cada capa de color usando Potrace del sistema.
     Ensambla el resultado en un solo SVG.
     """
     svg_paths = []
@@ -64,36 +110,19 @@ def trace_multilayer_svg(posterized_image, palette_hex):
     # Iterar sobre cada color detectado
     for hex_color in palette_hex:
         # Convertir hex a BGR (formato de OpenCV)
-        # El posterize_image nos da RGB, así que convertimos de RGB a BGR para cv2.inRange
         r = int(hex_color[1:3], 16)
         g = int(hex_color[3:5], 16)
         b = int(hex_color[5:7], 16)
         bgr_color = (b, g, r) # Orden BGR para OpenCV
         
         # Crear una máscara en blanco y negro para el color actual
-        # Usamos la imagen posterizada en formato BGR
         mask = cv2.inRange(posterized_image, bgr_color, bgr_color)
         
-        # Crear un objeto Bitmap de Potrace desde la máscara
-        bmp = potrace.Bitmap(mask.astype(np.uint8))
-        
-        # Trazar el bitmap
-        path = bmp.trace(turdsize=2, turnpolicy=potrace.TURNPOLICY_MINORITY, alphamax=1.0)
-        
-        # Convertir el trazado de potrace a una ruta SVG
-        svg_path_data = []
-        for curve in path.curves:
-            svg_path_data.append(f"M {curve.start_point[0]},{curve.start_point[1]}")
-            for segment in curve.segments:
-                if segment.is_corner:
-                    svg_path_data.append(f"L {segment.c[0]},{segment.c[1]} L {segment.end_point[0]},{segment.end_point[1]}")
-                else:
-                    svg_path_data.append(f"C {segment.c1[0]},{segment.c1[1]} {segment.c2[0]},{segment.c2[1]} {segment.end_point[0]},{segment.end_point[1]}")
-            svg_path_data.append("Z")
-            
-        # Añadir la ruta SVG completa con su color
-        if svg_path_data:
-            svg_paths.append(f'<path fill="{hex_color}" d="{" ".join(svg_path_data)}" />')
+        # Solo procesar máscaras no vacías
+        if np.any(mask):
+            path_svg = trace_with_potrace(mask, hex_color)
+            if path_svg:
+                svg_paths.append(path_svg)
 
     # Ensamblar el SVG final
     svg_header = f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
@@ -144,10 +173,8 @@ async def vectorize_image(
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-# --- Ejecución del Servidor (para pruebas locales) ---
+# --- Ejecución del Servidor ---
 
 if __name__ == "__main__":
-    # Esto te permite correr el servidor localmente con: python main.py
-    # Render usará un comando diferente para producción.
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
