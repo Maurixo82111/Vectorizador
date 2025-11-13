@@ -1,22 +1,16 @@
-# Usar una imagen base más robusta
-FROM python:3.11-bookworm
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Instalar dependencias del sistema de forma más exhaustiva
+# Instalar dependencias del sistema (solo runtime, no compilación)
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    pkg-config \
-    libpotrace-dev \
     potrace \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
+# Copiar requirements modificado
 COPY requirements.txt .
 
-# Instalar con flags específicos para compilación
-RUN pip install --no-cache-dir --verbose -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 
